@@ -169,3 +169,174 @@
 - surrogate key: new key added in dimension table when mixing two different data sources with same primary keys
 - can use "Identity column" feature in azure synapse to generate unique ID
 - right approach -> take different tables & create fact table in synapse itself using ADF to migrate tables from azure database to azure synapse
+
+
+##### 4.5 Transfer data from azure sql database to azure synapse
+- create table structure in synapse
+-  open synapse studio -> Integrate -> Copy data tool
+- make connection with the source (azure sql database) - select the server, database and table details
+- make connection to the target (azure synapse) - select the required details
+- select the staging area in ADLS2 or blob - used by the copy statement
+
+##### 4.6 Reading JSON files from ADLS/Blob
+```sql
+-- Here we are using the OPENROWSET Function
+
+SELECT TOP 100
+    jsonContent
+FROM
+    OPENROWSET(
+        BULK 'https://appdatalake7000.dfs.core.windows.net/data/log.json',
+        FORMAT = 'CSV',
+        FIELDQUOTE = '0x0b',
+        FIELDTERMINATOR ='0x0b',
+        ROWTERMINATOR = '0x0a'
+    )
+    WITH (
+        jsonContent varchar(MAX)
+    ) AS [rows]
+
+-- The above statement only returns all as a single string line by line
+-- Next we can cast to seperate columns
+
+SELECT 
+   CAST(JSON_VALUE(jsonContent,'$.Id') AS INT) AS Id,
+   JSON_VALUE(jsonContent,'$.Correlationid') As Correlationid,
+   JSON_VALUE(jsonContent,'$.Operationname') AS Operationname,
+   JSON_VALUE(jsonContent,'$.Status') AS Status,
+   JSON_VALUE(jsonContent,'$.Eventcategory') AS Eventcategory,
+   JSON_VALUE(jsonContent,'$.Level') AS Level,
+   CAST(JSON_VALUE(jsonContent,'$.Time') AS datetimeoffset) AS Time,
+   JSON_VALUE(jsonContent,'$.Subscription') AS Subscription,
+   JSON_VALUE(jsonContent,'$.Eventinitiatedby') AS Eventinitiatedby,
+   JSON_VALUE(jsonContent,'$.Resourcetype') AS Resourcetype,
+   JSON_VALUE(jsonContent,'$.Resourcegroup') AS Resourcegroup
+FROM
+    OPENROWSET(
+        BULK 'https://appdatalake7000.dfs.core.windows.net/data/log.json',
+        FORMAT = 'CSV',
+        FIELDQUOTE = '0x0b',
+        FIELDTERMINATOR ='0x0b',
+        ROWTERMINATOR = '0x0a'
+    )
+    WITH (
+        jsonContent varchar(MAX)
+    ) AS [rows]
+```
+
+
+##### 4.6 Azure Synapse Architecture
+
+- there are 60 distributions
+- data is shared into distributions to optimize the performance of work
+- data and compute are seperate, they can scale independently
+- **control node** - optimizes the query for parallel processing
+- work is then passed to the **compute nodes**, these nodes will do the work in parallel
+
+##### 4.7 Types of tables
+- Round-robin distributed tables:
+     - data is distributed randomly
+     - default distribution while creating tables
+     - best for temporary or staging tables
+     - If there are no joins performed on tables, then you can consider using this table type
+     - Also, if there is no clear candidate column for hash distributing the table.
+- Hash-distributed tables:
+     - data is distributed based on HASH(<particular column>)
+     - good for large tables - fact tables
+     - while choosing distribution column:
+            - ensure it has many unique values - data gets spread across more distributions
+            - if not, it may result in DATA SKEW
+            - dont use date column
+            - does not have NULLS or very few NULLS
+            - is used in JOIN, GROUP BY and HAVING clauses
+            - is not used in the WHERE clause
+    -  ```sql
+            CREATE TABLE [dbo].[SalesFact](
+            [ProductID] [int] NOT NULL,
+            [SalesOrderID] [int] NOT NULL,
+            [CustomerID] [int] NOT NULL,
+            [OrderQty] [smallint] NOT NULL,
+            [UnitPrice] [money] NOT NULL,
+            [OrderDate] [datetime] NULL,
+            [TaxAmt] [money] NULL
+            )
+            WITH  
+            (   
+                DISTRIBUTION = HASH (CustomerID)
+            )
+        ```
+- Replicated tables:
+    - full copy of table is cached on every distribution (compute node)
+    - good for dimension tables
+    - ideal for tables less than 2 GB
+    - not ideal for tables with frequent insert, update and delete
+    - Use replicated tables for queries with simple query predicates, such as equality or inequality
+    - Use distributed tables for queries with complex query predicates, such as LIKE or NOT LIKE
+    - ```sql
+        CREATE TABLE [dbo].[SalesFact](
+        [ProductID] [int] NOT NULL,
+        [SalesOrderID] [int] NOT NULL,
+        [CustomerID] [int] NOT NULL,
+        [OrderQty] [smallint] NOT NULL,
+        [UnitPrice] [money] NOT NULL,
+        [OrderDate] [datetime] NULL,
+        [TaxAmt] [money] NULL
+        )
+        WITH  
+        (   
+            DISTRIBUTION = REPLICATE
+        )
+        ```
+
+- If we are not using hash-distributed tables for fact tables & replicated tables for dimension tables, while performing JOINs or any other operations - data has to be moved from one distribution to the other distribution. this operation is called as "**DATA SHUFFLE MOVE OPERATION**" - this may lead to time lag for very big tables.
+
+##### 4.8 Surrogate keys for dimension tables
+- surrogate key == non-business key
+- simple incrementing integer values
+- in SQL pool tables, use IDENTITY column feature
+
+```sql
+CREATE TABLE [dbo].[DimProduct](
+	[ProductSK] [int] IDENTITY(1,1) NOT NULL,
+	[ProductID] [int] NOT NULL,
+	[ProductModelID] [int] NOT NULL,
+	[ProductSubcategoryID] [int] NOT NULL,
+	[ProductName] varchar(50) NOT NULL,
+	[SafetyStockLevel] [smallint] NOT NULL,
+	[ProductModelName] varchar(50) NULL,
+	[ProductSubCategoryName] varchar(50) NULL
+)
+```
+
+- in synapse studio integrate data copy method -> the Identity column - not oncremented one by one - but by number of distributions
+- ADF can properly create incremental nubers in IDENTIY column
+
+
+##### 4.9 Slowly changing dimensions
+- type-1 SCD: updates the OLD value with the NEW value in the data warehouse
+- type-2 SCD: keeps both OLD and NEW values (start_date and end_date and is_active)
+- type-3 SCD: instead of having multiple rows, additional columns are added to signify the change
+
+##### 4.10 Heap tables
+```sql
+CREATE TABLE [dbo].[SalesFact_staging](
+	[ProductID] [int] NOT NULL,
+	[SalesOrderID] [int] NOT NULL,
+	[CustomerID] [int] NOT NULL,
+	[OrderQty] [smallint] NOT NULL,
+	[UnitPrice] [money] NOT NULL,
+	[OrderDate] [datetime] NULL,
+	[TaxAmt] [money] NULL
+)
+WITH(HEAP,
+DISTRIBUTION = ROUND_ROBIN
+)
+
+CREATE INDEX ProductIDIndex ON [dbo].[SalesFact_staging] (ProductID)
+```
+- this does not create a clustered column store table
+- clustered column store table: used for final tables
+- for temporary tables - HEAP tables are prefered
+- In heap tables - no option to create clustered column store INDEX
+- so, we can create a non-clustered INDEX using `CREATE INDEX`
+
