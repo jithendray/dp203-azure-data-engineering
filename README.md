@@ -340,3 +340,89 @@ CREATE INDEX ProductIDIndex ON [dbo].[SalesFact_staging] (ProductID)
 - In heap tables - no option to create clustered column store INDEX
 - so, we can create a non-clustered INDEX using `CREATE INDEX`
 
+##### 4.11 Partitions
+
+```sql
+-- Let's create a new table with partitions
+CREATE TABLE [logdata]
+(
+    [Id] [int] NULL,
+	[Correlationid] [varchar](200) NULL,
+	[Operationname] [varchar](200) NULL,
+	[Status] [varchar](100) NULL,
+	[Eventcategory] [varchar](100) NULL,
+	[Level] [varchar](100) NULL,
+	[Time] [datetime] NULL,
+	[Subscription] [varchar](200) NULL,
+	[Eventinitiatedby] [varchar](1000) NULL,
+	[Resourcetype] [varchar](1000) NULL,
+	[Resourcegroup] [varchar](1000) NULL
+)
+WITH
+(
+PARTITION ( [Time] RANGE RIGHT FOR VALUES
+            ('2021-04-01','2021-05-01','2021-06-01')
+
+   )  
+)
+```
+
+**Switching partitions**
+```sql
+ALTER TABLE [logdata] SWITCH PARTITION 2 TO [logdata_new] PARTITION 1;
+```
+
+
+##### 4.12 Indexes
+- Clusterd Columnstore Indexes
+- Heap tables
+- Clustered Indexes
+- NonClustered Indexes
+
+
+### 5. Design and Develop Data Processing - Azure Data Factory
+
+##### 5.1 Azure Data Factory
+- cloud-based ET tool
+- data-driven orchestrated workflows
+
+**ADF components:**
+- **Linked Service:** can create required compute resources to enable ingestion of data from the source 
+- **Datasets:** represents the data structure within the data store that is being referenced by the Linked Service object
+- **Activity:** contains the actual transformation logic
+
+- azure pipeline will create compute infrastructure known as **Integration runtime** - responsible for taking data from source and copying it to the destination
+
+
+##### 5.2 Mapping Data Flows
+- This helps to visualize the data transformations in Azure Data Factory.
+- Here you can write the required transformation logic without actually writing any code.
+- The data flows are run on **Apache Spark clusters**.
+- Here Azure Data Factory will handle the transformations in the data flow.
+- **Debug mode** – You also have a Debug mode in place. Here you can actually see the results of each transformation.
+- In the debug mode session, the data flow is run interactively on a Spark cluster.
+- minimum cluster size to run a Data Flow is 8 vCores.
+
+
+##### 5.3 Self-Hosted Integration runtime
+- if the database in own custom system sitting inside a VM
+- install the integration runtime on VM
+- register the server with the data factory
+
+
+### Azure Event Hubs and Streaming Analytics
+
+##### 6.1 Azure Event Hubs
+
+- big data streaming platform
+- can receive and process millions of events per second
+- can stream log data, telemetry data, any sort of events to azure events hub
+- event hubs namespace -> event hubs
+-  event hubs - multiple partitions - ingest more data at a time - event receivers can take data from one partition or multiple partitions - helps event receivers to consume data in faster rate
+
+**Components of Azure event hubs:**
+- event producers: entity that sends data to event hub - events can be published using the protocols - HTTPS, AMQP, Apache Kafka
+- partitions: data is split across partitions - allows for better throughput of data onto event hubs
+- consumer groups: view (state, position or offset) of an entire event hub
+- throughput: controls the throughput capacity of event hubs
+- receivers: entity taht reads event data
