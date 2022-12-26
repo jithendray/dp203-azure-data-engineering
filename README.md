@@ -410,7 +410,7 @@ ALTER TABLE [logdata] SWITCH PARTITION 2 TO [logdata_new] PARTITION 1;
 - register the server with the data factory
 
 
-### Azure Event Hubs and Streaming Analytics
+### 6. Azure Event Hubs and Streaming Analytics
 
 ##### 6.1 Azure Event Hubs
 
@@ -426,3 +426,104 @@ ALTER TABLE [logdata] SWITCH PARTITION 2 TO [logdata_new] PARTITION 1;
 - consumer groups: view (state, position or offset) of an entire event hub
 - throughput: controls the throughput capacity of event hubs
 - receivers: entity taht reads event data
+
+
+
+### 7. Spark Pool
+
+##### 7.1 Azure Synapse - Apache Spark pool
+- serverless spark pool
+- not charged on creation of pool
+- charged when underlying jobs are running
+- large datasets and distribute computation across multiple pools
+- driver node and executors
+
+- spark scala
+- creates RDD - Resilient Distributed Dataset
+```scala
+val dist = sc.parallelize(data)
+```
+
+##### 7.2 Spark Dataset
+- This is a strongly typed collection of domain-specific objects
+- This data can then be transformed in parallel
+- Normally you will perform either transformations or actions on a dataset
+- The transformation will produce a new dataset
+- The action will trigger a computation and produce the required result
+- The benefit of having a Dataset is that you can use powerful transformations on the underlying data
+
+##### 7.3 Spark Dataframe
+-  The DataFrame is nothing but a Dataset that is organized into named columns.
+- Its like a table in a relational database.
+- You can construct DataFrames from external files.
+- When it comes to Datasets, the API for working with Datasets is only available for Scala and Java.
+- For DataFrames, the API is available in Scala, Java, Python and R.
+
+
+- In the spark pool, the spark instances are created when you connect to a spark pool, create a session and run a job
+- when you submit another job, if there is capacity in the pool and the spark instance has spare capacity, itwill run the 2nd job
+- else, it will crate a new spark instance to run the job
+
+##### 7.4 Spark table
+- stored in metastore of spark pool (HIVE META STORE)
+- not for storing data, just for temporary tables
+- the benefit of spark table: metastore is shared with serverless SQL pool as well
+
+```scala
+%%spark
+val df = spark.read.sqlanalytics("jibsypool.dbo.logdata") 
+df.write.mode("overwrite").saveAsTable("logdatainternal")
+
+%%sql
+SELECT * FROM logdatainternal
+```
+
+##### 7.5 Spark tables - Creation
+- spark tables are parquet based tables
+- 
+```scala
+%%sql
+CREATE DATABASE internaldb
+CREATE TABLE internaldb.customer(Id int,name varchar(200)) USING Parquet
+
+%%sql
+INSERT INTO internaldb.customer VALUES(1,'UserA')
+
+%%sql
+SELECT * FROM internaldb.customer
+
+
+// If you want to load data from the log.csv file and then save to a table
+%%pyspark
+df = spark.read.load('abfss://data@datalake2000.dfs.core.windows.net/raw/Log.csv', format='csv', header=True)
+df.write.mode("overwrite").saveAsTable("internaldb.logdatanew")
+
+%%sql
+SELECT * FROM internaldb.logdatanew
+```
+
+- to delete the database, tables have to be dropped first
+
+##### 7.6 Spark Pool - JSON files
+
+```scala
+%%spark
+
+val df = spark.read.format("json").load("abfss://data@datalake2000.dfs.core.windows.net/raw/customer/customer_arr.json")
+display(df)
+
+// Now we need to expand the courses information
+
+%%spark
+import org.apache.spark.sql.functions._
+val df = spark.read.format("json").load("abfss://data@datalake2000.dfs.core.windows.net/raw/customer/customer_arr.json")
+val newdf=df.select(col("customerid"),col("customername"),col("registered"),explode(col("courses")))
+display(newdf)
+
+// Reading the customer object file
+%%spark
+import org.apache.spark.sql.functions._
+val df = spark.read.format("json").load("abfss://data@datalake2000.dfs.core.windows.net/raw/customer/customer_obj.json")
+val newdf=df.select(col("customerid"),col("customername"),col("registered"),explode(col("courses")),col("details.city"),col("details.mobile"))
+display(newdf)
+```
