@@ -527,3 +527,159 @@ val df = spark.read.format("json").load("abfss://data@datalake2000.dfs.core.wind
 val newdf=df.select(col("customerid"),col("customername"),col("registered"),explode(col("courses")),col("details.city"),col("details.mobile"))
 display(newdf)
 ```
+
+### 8. Databricks
+
+##### 8.1 Databricks
+- makes use of apache spark to provide a unified analytics platform
+- creates the underlying compute infra
+- has its own underlying file system - abstraction of an underlying storage layer
+- will install spark by itself - also has comatibility for other libs - ML libs
+- provides workspace - notebooks with collaboration and visualization features
+
+
+##### 8.2 Azure Databricks
+- completely azure-managed environment
+- makes use of underlying compute infrastructure and virtual networks
+- makes use of azure security - azure active directory and role-based access control
+
+**Clusters in Azure Databricks**
+- inside cluster - 2 types of nodes
+    - worker nodes - perform the underlying tasks
+    - driver node - distributes the task to worker nodes
+
+- 2 types of clusters
+    - Interactive clustrer: interactive notebooks and multiple users can use a cluster for collaboration
+    - Job cluster: cluster is started when the job has to run, and will be terminated once the job is completed
+
+- 2 types of Interactive cluster
+    - Standard cluster:
+        - recommended if you are a single user
+        - no fault isolation - if multiple users are using and one user has fault - this might impact workloads of other users
+        - resources of a cluster might get allocated to a single workload
+        - has support for python, R, SQL and Scala
+    - High concurrency cluster:
+        - for multiple users
+        - fault isolation
+        - resources are shared across different user workloads
+        - support for python, R and SQL (no scala)
+        - table access control: can grant and revke access to data from python and SQL
+
+##### 8.3 Autoscaling a cluster
+
+- When creating an Azure Databricks cluster, you can specify a minimum and  maximum number of workers for the cluster.
+- Databricks will then choose the ideal number of workers to run the job.
+- If a certain phase of your job requires more compute power, the workers will be assigned accordingly.
+- There are two types of autoscaling
+    - **Standard autoscaling**
+        - Here the cluster starts with 8 nodes
+        - Scales down only when the cluster is completely idle and it has been underutilized for the last 10 minute
+        - Scales down exponentially, starting with 1 node
+    - **Optimized autoscaling**
+        - This is only available for Azure Databricks Premium Plan
+        - Can scale down even if the cluster is not idle by looking at shuffle file state
+        - Scales down based on a percentage of current nodes
+        - On job clusters, scales down if the cluster is underutilized over the last 40 seconds
+        - On all-purpose clusters, scales down if the cluster is underutilized over the last 150 seconds
+
+##### 8.4 Azure Databricks Table
+- In Azure Databricks, you can also create a database and tables
+- The table is a collection of structured data
+- You can then perform operations on the data that are supported by Apache Spark on DataFrames on Azure Databricks tables
+- There are two types of tables – global and local tables.
+- A global table is available across all clusters
+- A global table is registered in the Azure Databricks Hive metastore or an external metastore
+- The local table is not accessible from other clusters and is not registered in the Hive metastore
+
+
+##### 8.5 Delta Lake
+
+- ACID transactions on Spark - Serializable isolation levels ensure that readers never see inconsistent data
+- Scalable metadata handling - Leverages Spark distributed processing power to handle all the metadata for petabyte-scale tables with billions of files at ease.
+- Streaming and batch unification - A table in Delta Lake is a batch table as well as a streaming source and sink. Streaming data ingest, batch historic backfill, interactive queries all just work out of the box.
+- Schema enforcement - Automatically handles schema variations to prevent insertion of bad records during ingestion.
+- Time travel - Data versioning enables rollbacks, full historical audit trails, and reproducible machine learning experiments.
+- Upserts and deletes - Supports merge, update and delete operations to enable complex use cases like change-data-capture, slowly-changing-dimension (SCD) operations, streaming upserts, and so on.
+
+### 9 Security
+
+- **Azure Key Vault** - certificates, encryption keys and secrets (passwords and login details)
+
+- **Azure Data Factory – Encryption**
+    - Azure Data Factory already encrypts data at rest which also includes entity definitions and any data that is cached. 
+    - The encryption is carried out with Microsoft-managed keys.
+    - But you can also define your own keys using the Azure Key vault service.
+    - For the key vault, you have to ensure that **Soft delete** is enabled and the setting of **Do Not Purge** is also enabled.
+    - Also grant Azure Data Factory the key permissions of 'Get', 'Unwrap Key' and 'Wrap Key'
+
+- **Azure Synapse - Data Masking**
+    - Here the data in the table can be limited in its exposure to non-privileged users.
+    - You can create a rule that can mask the data. 
+    - Based on the rule you can decide on the amount of data to expose to the user.
+    - There are different masking rules.
+    - Credit Card masking rule – This is used to mask the column that contain credit card details. Here only the last four digits of the field are exposed.
+    - Email – Here first letter of the email address is exposed. And the domain name of the email address is replaced with XXX.com.
+    - Custom text- Here you decide which characters to expose for a field.
+    - Random number- Here you can generate a random number for the field.
+
+- **Azure Synapse - Auditing** 
+    - You can enable auditing for an Azure SQL Pool in Azure Synapse Analytics.
+    - This feature can be used to track database events and write them to an audit log. 
+    - The logs can be stored in an Azure storage account, a Log Analytics workspace and Azure Event Hubs.
+    - This helps in regulatory compliance. It helps to gain insights on any anomalies when it comes to database activities.
+    - Auditing can be enabled at the data warehouse level or server level.
+    - If it is applied at the server level, then it will be applied to all of the data warehouses that reside on the server
+
+- **Azure Synapse - Data Discovery and Classification**
+    - This feature provides capabilities for discovering, classifying, labelling, and reporting the sensitive data in your databases.
+    - The data discovery feature can scan the database and identify columns that contains sensitive data. You can then view and apply the recommendations accordingly.
+    - You can then apply sensitivity labels to the column. This helps to define the sensitivity level of the data stored in the column.
+
+- **Row level security:**
+
+```sql
+-- Create a new schema for the security function
+
+CREATE SCHEMA Security;  
+
+-- Create an inline table function
+-- The function returns 1 when a row in the Agentcolumn is the same as the user executing the query 
+-- (@Agent = USER_NAME()) or if the user executing the query is the Manager user (USER_NAME() = 'Supervisor').
+
+CREATE FUNCTION Security.securitypredicate(@Agent AS nvarchar(50))  
+    RETURNS TABLE  
+WITH SCHEMABINDING  
+AS  
+    RETURN SELECT 1 AS securitypredicate_result
+WHERE @Agent = USER_NAME() OR USER_NAME() = 'Supervisor';  
+
+-- Create a security policy adding the function as a filter predicate. The state must be set to ON to enable the policy.
+
+CREATE SECURITY POLICY Filter  
+ADD FILTER PREDICATE Security.securitypredicate(Agent)
+ON [dbo].[Orders] 
+WITH (STATE = ON);  
+GO
+
+-- Lab - Azure Synapse - Row-Level Security
+
+-- Allow SELECT permissions to the function
+
+GRANT SELECT ON Security.securitypredicate TO Supervisor;
+GRANT SELECT ON Security.securitypredicate TO AgentA;  
+GRANT SELECT ON Security.securitypredicate TO AgentB;
+```
+
+
+- **Azure Synapse - Column level security**
+
+```sql
+CREATE USER Supervisor WITHOUT LOGIN;  
+CREATE USER UserA WITHOUT LOGIN;  
+
+-- Grant access to the tables for the users
+
+GRANT SELECT ON [dbo].[Orders] TO Supervisor; 
+GRANT SELECT ON [dbo].[Orders](OrderID,Course,Quantity) TO UserA; 
+
+```
